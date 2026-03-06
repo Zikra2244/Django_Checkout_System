@@ -1,80 +1,105 @@
-# Checkout System API
+# Sistem Checkout API (Assmblr Tech Test)
 
-A simple checkout system built with Django and Django REST Framework, integrated with Midtrans Sandbox.
+Sebuah sistem *checkout* sederhana yang dibangun menggunakan Django dan Django REST Framework, terintegrasi penuh dengan Midtrans Sandbox.
 
-## Prerequisites
-- Python 3.10+
-- `pip` package manager
+## Persyaratan Sistem (Prerequisites)
+- Python 3.10 atau versi lebih baru
+- `pip` (Rekomendasi menggunakan `virtualenv`)
+- PostgreSQL (Menggunakan database Supabase seperti yang telah dikonfigurasi di `.env.example`)
 
-## Setup Instructions
+---
 
-1. **Clone the repository** (or unzip the folder).
-2. **Navigate to the project directory**.
-3. **Create a virtual environment**:
+## Petunjuk Instalasi & Menjalankan Aplikasi
+
+1. **Clone repository ini** 
+2. **Masuk ke dalam direktori proyek**:
+   ```bash
+   cd "assmblr tech test"
+   ```
+3. **Buat virtual environment**:
    ```bash
    python -m venv venv
    ```
-4. **Activate the virtual environment**:
-   - On Windows: `.\venv\Scripts\activate`
-   - On Mac/Linux: `source venv/bin/activate`
-5. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-6. **Set up Environment Variables**:
-   Copy `.env.example` to `.env` and fill in your Midtrans Sandbox keys and Supabase connection string:
+4. **Aktifkan virtual environment**:
+   - Untuk **Windows**: 
+     ```bash
+     .\venv\Scripts\activate
+     ```
+   - Untuk **Mac/Linux**: 
+     ```bash
+     source venv/bin/activate
+     ```
+5. **Konfigurasi Environment Variables (`.env`)**:
+   Salin file `.env.example` menjadi `.env`:
    ```bash
    cp .env.example .env
    ```
-   *Edit `.env` to include your valid `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY`, and Supabase PostgreSQL `DATABASE_URL`.*
-7. **Run Migrations**:
+   *Buka file `.env` dan masukkan Server Key serta Client Key dari Midtrans Sandbox Anda. Jika Anda ingin mengetes koneksi Supabase asli proyek ini, biarkan `DATABASE_URL` sesuai pada file `.env.example`.*
+
+7. **Jalankan Migrasi Database**:
    ```bash
    python manage.py makemigrations
    python manage.py migrate
    ```
-8. **(Optional) Create dummy products testing**:
-   You can create a superuser and add products via Django Admin (`/admin`), or use `python manage.py shell`.
+8. **(Opsional) Buat Akun Superuser & Data Dummy**:
+   Anda dapat membuat akun admin untuk memasukkan data produk tiruan (dummy) via Django Admin Panel (`http://127.0.0.1:8000/admin`).
    ```bash
    python manage.py createsuperuser
    ```
-9. **Run the server**:
+   *(Atau Anda bisa menggunakan `python manage.py shell` untuk membuat produk).*
+
+9. **Jalankan Server Lokal**:
    ```bash
    python manage.py runserver
    ```
 
-## Running Tests
-Run the included unit tests using:
+---
+
+## Panduan Pengujian (Testing)
+
+### 1. Pengujian Otomatis (Automated Unit Tests)
+Proyek ini sudah dilengkapi dengan \`26 skenario pengujian unit\` komprehensif (meliputi *race condition*, *stock check*, kalkulasi total, validasi webhook, dll). 
+Jalankan tes menggunakan perintah berikut (pastikan virtual environment aktif):
 ```bash
-python manage.py test api
+python manage.py test api -v 2
 ```
 
-## API Endpoints
+### 2. Pengujian API Manual (Via Postman/Insomnia)
 
-### 1. List Products
-- **Endpoint**: `GET /api/products/`
-- **Description**: Returns all available products with stock information.
+*Pastikan server django (`python manage.py runserver`) sedang menyala.*
 
-### 2. Create Order (Checkout)
-- **Endpoint**: `POST /api/checkout/`
-- **Payload**:
+#### A. Cek Daftar Produk
+- **Metode**: `GET`
+- **URL**: `http://127.0.0.1:8000/api/products/`
+- **Fungsi**: Melihat ID produk, nama, harga, dan ketersediaan stok.
+
+#### B. Membuat Order (Checkout)
+- **Metode**: `POST`
+- **URL**: `http://127.0.0.1:8000/api/checkout/`
+- **Headers**: `Content-Type: application/json`
+- **Payload Contoh**:
   ```json
   {
+      "customer_name": "Zikra Fadly",
+      "customer_email": "zikra@example.com",
       "items": [
-          {"product": 1, "quantity": 2},
-          {"product": 2, "quantity": 1}
+          {"product": 1, "quantity": 2}
       ]
   }
   ```
-- **Description**: Safely reduces stock inside a transaction block, creates an order, calculates total price, and retrieves a Midtrans payment token/URL.
+- **Fungsi**: Memeriksa stok produk (menolaknya jika kurang), mengunci baris DB (*Row Locking*), mengurangi stok, menghitung harga total (*backend server-side*), dan me-return `payment_url` (halaman pembayaran Midtrans Sandbox).
 
-### 3. Midtrans Webhook
-- **Endpoint**: `POST /api/webhook/midtrans/`
-- **Description**: Webhook listener for Midtrans notifications. Validates signature and updates the order status idempotently.
+#### C. Simulasi Notifikasi Webhook Midtrans
+- **Metode**: `POST`
+- **URL**: `http://127.0.0.1:8000/api/webhook/`
+- **Headers**: `Content-Type: application/json`
+- **Fungsi**: Menyimulasikan _update_ riil dari server Midtrans. Memvalidasi algoritma `signature_key` (SHA512) demi keamanan, lalu melakukan *idempotency check* untuk menghindari pemrosesan data ganda untuk Order yang sama.
 
-## Features Met From Requirements
-- `transaction.atomic()` used during Checkout and Webhook processing.
-- Stock availability checks before reduction (and locks rows to prevent race-conditions using `select_for_update()`).
-- Automated total price calculation based on actual product price.
-- Duplicate Midtrans webhooks are handled idempotently to only update state logically. 
-- Validation of Midtrans signature key via `hashlib.sha512(order_id + status_code + gross_amount + server_key)`.
-- Environment variable configuration for secrets and credentials via `python-dotenv`.
+---
+
+## Fitur Unggulan (Pemenuhan Requirement Tech Test)
+1. **Keamanan Transaksi Database**: Menggunakan blok `with transaction.atomic()` dan `select_for_update()` pada Checkout dan Webhook guna mencegah *Race Condition* saat banyak pengguna bertransaksi di waktu bersamaan.
+2. **Kalkulasi Aman di Backend**: Perhitungan `total_price` diotomatisasi sepelanuhya oleh server demi menghindari manipulasi harga oleh _client_.
+3. **Idempotent Webhook**: Antisipasi penanganan notifikasi *duplicate* dari Midtrans; sistem tidak akan merusak status Order yang sudah berstatus Final.
+4. **Validasi Signature Midtrans**: Endpoint Webhook tidak bergantung pada login *user*, namun diamankan dengan metode keamanan kalkulasi Hash SHA512 rahasia antara server lokal dan Midtrans.
+5. **Konfigurasi Berbasis Lingkungan**: Menghindari aksi "*Hardcode Credential*" dengan meletakkan konfigurasi krusial pada _environment variables_ menggunakan package `python-dotenv`.
