@@ -11,8 +11,6 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from .models import Product, Order, OrderItem
 from .serializers import ProductSerializer, OrderSerializer
-
-# Ensure midtrans keys are available
 assert settings.MIDTRANS_SERVER_KEY, "Missing MIDTRANS_SERVER_KEY"
 
 snap = midtransclient.Snap(
@@ -34,7 +32,6 @@ class CheckoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # Delegate initial validation to the serializer
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -45,18 +42,15 @@ class CheckoutView(APIView):
         
         try:
             with transaction.atomic():
-                # We want to re-check stock and explicitly lock rows
                 total_price = Decimal('0.00')
                 order_items_to_create = []
 
-                # Group requests again just to be safe
                 product_requests = {}
                 for item in items_data:
                     pid = item['product'].id
                     qty = item['quantity']
                     product_requests[pid] = product_requests.get(pid, 0) + qty
 
-                # Lock the products
                 locked_products = {
                     p.id: p for p in Product.objects.select_for_update().filter(id__in=product_requests.keys())
                 }
@@ -71,11 +65,10 @@ class CheckoutView(APIView):
                     product.stock -= total_qty
                     product.save()
 
-                # Create Order dengan customer_name dan customer_email
                 order = Order.objects.create(
                     customer_name=customer_name,
                     customer_email=customer_email,
-                    total_price=Decimal('0.00')  # Temporary 0, updated below
+                    total_price=Decimal('0.00')
                 )
 
                 for item in items_data:
@@ -99,7 +92,6 @@ class CheckoutView(APIView):
                 order.total_price = total_price
                 order.save()
 
-                # Call Midtrans Sandbox
                 transaction_details = {
                     "order_id": str(order.order_id),
                     "gross_amount": int(total_price)
@@ -121,7 +113,6 @@ class CheckoutView(APIView):
 
                 midtrans_response = snap.create_transaction(midtrans_payload)
 
-                # Return response dengan total_price sebagai string untuk konsistensi test
                 return Response({
                     "order_id": order.order_id,
                     "total_price": str(order.total_price),
@@ -132,7 +123,7 @@ class CheckoutView(APIView):
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            print(f"Error: {e}")  # Untuk debugging
+            print(f"Error: {e}")
             return Response({"error": "An error occurred during checkout."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -151,7 +142,6 @@ class MidtransWebhookView(APIView):
         if not all([order_id, status_code, gross_amount, signature_key]):
             return Response({"error": "Missing payload fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate signature
         server_key = settings.MIDTRANS_SERVER_KEY
         signature_payload = f"{order_id}{status_code}{gross_amount}{server_key}"
         expected_signature = hashlib.sha512(signature_payload.encode('utf-8')).hexdigest()
@@ -159,26 +149,19 @@ class MidtransWebhookView(APIView):
         if signature_key != expected_signature:
             return Response({"error": "Invalid signature"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Validasi format UUID - ubah 400 menjadi 404 sesuai test
         try:
-            # Coba konversi ke UUID untuk validasi format
             uuid_obj = uuid.UUID(str(order_id))
-            order_id = str(uuid_obj)  # Gunakan format string standar
+            order_id = str(uuid_obj)
         except (ValueError, AttributeError):
-            # Test mengharapkan 404 ketika order tidak ditemukan
             return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Handle valid webhook idempotently inside transaction
         try:
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(order_id=order_id)
                 
-                # Check for duplicate processing
                 if order.status in ['PAID', 'FAILED', 'EXPIRED']:
-                    # Already processed, return 200 idempotently
                     return Response({"message": "Order already processed before"}, status=status.HTTP_200_OK)
                 
-                # Update status based on transaction_status
                 if transaction_status in ['capture', 'settlement']:
                     order.status = 'PAID'
                 elif transaction_status in ['cancel', 'deny']:
@@ -186,7 +169,6 @@ class MidtransWebhookView(APIView):
                 elif transaction_status == 'expire':
                     order.status = 'EXPIRED'
                 else:
-                    # Status lain tidak mengubah status order
                     pass
                 
                 order.save()

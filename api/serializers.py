@@ -46,29 +46,21 @@ class OrderSerializer(serializers.ModelSerializer):
     def validate_items(self, value):
         if not value:
             raise serializers.ValidationError("Order must have at least one item.")
-        
-        # Check stock and merge duplicate products
         product_counts = {}
         product_objects = {}
         
         for item in value:
             product_id = item['product'].id
             quantity = item['quantity']
-            
-            # Check product exists
             try:
                 product = Product.objects.get(id=product_id)
                 product_objects[product_id] = product
             except Product.DoesNotExist:
                 raise serializers.ValidationError(f"Product with ID {product_id} does not exist.")
-            
-            # Merge quantities for same product
             if product_id in product_counts:
                 product_counts[product_id] += quantity
             else:
                 product_counts[product_id] = quantity
-
-        # Check stock for merged quantities
         for product_id, total_quantity in product_counts.items():
             product = product_objects[product_id]
             if product.stock < total_quantity:

@@ -16,8 +16,6 @@ class Order(models.Model):
         ('FAILED', 'Failed'),
         ('EXPIRED', 'Expired'),
     ]
-
-    # Perbaiki ini - gunakan UUIDField dengan benar
     order_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     total_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
